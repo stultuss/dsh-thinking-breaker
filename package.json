@@ -1,0 +1,51 @@
+{
+  "name": "dsh-thinking-breaker",
+  "version": "0.1.0",
+  "description": "Detect agent loops (repeated identical tool calls, progress stagnation), remind first, then pause and ask the human with 4 recovery options. Pure rule-based detection, no external model calls.",
+  "type": "module",
+  "main": "./index.mjs",
+  "types": "./index.d.mts",
+  "exports": {
+    ".": {
+      "types": "./index.d.mts",
+      "default": "./index.mjs"
+    },
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.mjs",
+    "index.d.mts",
+    "cordis.patch.yml",
+    "README.md",
+    "scripts/setup-deps.mjs"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "scripts": {
+    "postinstall": "node scripts/setup-deps.mjs",
+    "setup:deps": "node scripts/setup-deps.mjs",
+    "build": "rm -f index.mjs index.d.mts && tsup && mv -f index.d.ts index.d.mts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "keywords": [
+    "dsh",
+    "plugin",
+    "agent",
+    "loop-detection",
+    "human-in-the-loop"
+  ],
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@vitest/coverage-v8": "^3.2.7",
+    "tsup": "^8.3.0",
+    "typescript": "^5.6.0",
+    "vitest": "^3.0.0"
+  }
+}

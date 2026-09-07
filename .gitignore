@@ -1,0 +1,10 @@
+node_modules/
+lib/
+dist/
+coverage/
+.pnpm-store/
+*.tsbuildinfo
+.dsh-thinking-breaker/
+# 自动生成的 DSH 类型映射（scripts/setup-deps.mjs 在 postinstall 生成）
+tsconfig.dsh.json
+.dsh-scope.json

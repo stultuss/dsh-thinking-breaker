@@ -1,0 +1,6 @@
+# dsh-thinking-breaker bundle patch：向 profile 插入本插件行。
+# 导出格式与官方第三方插件一致（参见 dsh-clear-tool-results 等）：
+# patch 文件是一个顶层数组，`insert` 追加条目 { id, name }，name 为 profile 内已安装的包名。
+- insert:
+    - id: thinking-breaker
+      name: dsh-thinking-breaker
