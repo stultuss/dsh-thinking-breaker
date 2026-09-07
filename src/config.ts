@@ -18,6 +18,14 @@ export interface Config {
       remindAt: number
       askAt: number
     }
+    exploration: {
+      enabled: boolean
+      remindAt: number
+      askAt: number
+      resetAfterChars: number
+      include: string[]
+      exclude: string[]
+    }
   }
   recover: {
     graceSteps: number
@@ -46,6 +54,14 @@ const DEFAULTS: Config = {
       argumentsPreviewChars: 500,
     },
     stagnant: { remindAt: 5, askAt: 8 },
+    exploration: {
+      enabled: false,
+      remindAt: 20,
+      askAt: 30,
+      resetAfterChars: 500,
+      include: [],
+      exclude: [],
+    },
   },
   recover: { graceSteps: 2 },
   interaction: { timeout: 300, noAnswerer: 'continue' },
@@ -68,6 +84,14 @@ function int(value: unknown, fallback: number, path: string, min: number): numbe
   const n = typeof value === 'number' ? value : Number(value)
   if (!Number.isInteger(n) || n < min) fail(path, `必须是 ≥${min} 的整数（当前 ${String(value)}）`)
   return n
+}
+
+function bool(value: unknown, fallback: boolean, path: string): boolean {
+  if (value === undefined || value === null || value === '') return fallback
+  if (typeof value === 'boolean') return value
+  if (value === 'true') return true
+  if (value === 'false') return false
+  fail(path, `必须是布尔值（当前 ${String(value)}）`)
 }
 
 function oneOf<T extends string>(value: unknown, allowed: readonly T[], fallback: T, path: string): T {
@@ -105,6 +129,13 @@ export function applyEnvOverrides(config: Config, env: Record<string, string | u
         remindAt: num('DSH_TB_STAGNANT_REMIND_AT', config.loopDetect.stagnant.remindAt, 'loopDetect.stagnant.remindAt', 2),
         askAt: num('DSH_TB_STAGNANT_ASK_AT', config.loopDetect.stagnant.askAt, 'loopDetect.stagnant.askAt', 3),
       },
+      exploration: {
+        ...config.loopDetect.exploration,
+        enabled: bool(env.DSH_TB_EXPLORATION_ENABLED, config.loopDetect.exploration.enabled, 'loopDetect.exploration.enabled'),
+        remindAt: num('DSH_TB_EXPLORATION_REMIND_AT', config.loopDetect.exploration.remindAt, 'loopDetect.exploration.remindAt', 2),
+        askAt: num('DSH_TB_EXPLORATION_ASK_AT', config.loopDetect.exploration.askAt, 'loopDetect.exploration.askAt', 3),
+        resetAfterChars: num('DSH_TB_EXPLORATION_RESET_AFTER_CHARS', config.loopDetect.exploration.resetAfterChars, 'loopDetect.exploration.resetAfterChars', 1),
+      },
     },
     recover: {
       graceSteps: num('DSH_TB_GRACE_STEPS', config.recover.graceSteps, 'recover.graceSteps', 0),
@@ -132,6 +163,7 @@ export function resolveConfig(input?: unknown, env: Record<string, string | unde
   const loopDetect = section(src.loopDetect, 'loopDetect')
   const structRepeat = section(loopDetect.structRepeat, 'loopDetect.structRepeat')
   const stagnant = section(loopDetect.stagnant, 'loopDetect.stagnant')
+  const exploration = section(loopDetect.exploration, 'loopDetect.exploration')
   const recover = section(src.recover, 'recover')
   const interaction = section(src.interaction, 'interaction')
   const storage = section(src.storage, 'storage')
@@ -149,6 +181,14 @@ export function resolveConfig(input?: unknown, env: Record<string, string | unde
       stagnant: {
         remindAt: int(stagnant.remindAt, DEFAULTS.loopDetect.stagnant.remindAt, 'loopDetect.stagnant.remindAt', 2),
         askAt: int(stagnant.askAt, DEFAULTS.loopDetect.stagnant.askAt, 'loopDetect.stagnant.askAt', 3),
+      },
+      exploration: {
+        enabled: bool(exploration.enabled, DEFAULTS.loopDetect.exploration.enabled, 'loopDetect.exploration.enabled'),
+        remindAt: int(exploration.remindAt, DEFAULTS.loopDetect.exploration.remindAt, 'loopDetect.exploration.remindAt', 2),
+        askAt: int(exploration.askAt, DEFAULTS.loopDetect.exploration.askAt, 'loopDetect.exploration.askAt', 3),
+        resetAfterChars: int(exploration.resetAfterChars, DEFAULTS.loopDetect.exploration.resetAfterChars, 'loopDetect.exploration.resetAfterChars', 1),
+        include: stringList(exploration.include, DEFAULTS.loopDetect.exploration.include, 'loopDetect.exploration.include'),
+        exclude: stringList(exploration.exclude, DEFAULTS.loopDetect.exploration.exclude, 'loopDetect.exploration.exclude'),
       },
     },
     recover: {

@@ -35,6 +35,8 @@ export function buildReminder(hit: DetectorHit): UserMessage {
     text = `⚠️ 循环提醒：已连续 ${hit.count} 次调用工具「${hit.toolName}」且参数完全一致。请先分析已有结果；若任务尚未完成，尝试不同的参数或不同的方案，而不是原样重复调用。${preview}`
   } else if (hit.kind === 'stagnant') {
     text = `⚠️ 停滞提醒：已连续 ${hit.count} 步没有新的工具调用且输出没有变化。请立即采取具体行动推进任务，避免空转。`
+  } else if (hit.kind === 'exploration') {
+    text = `⚠️ 探索提醒：已连续 ${hit.count} 步自主勘察（静默工具调用）且没有阶段性长文汇报。若尚无明确结论，考虑主动向用户汇报阶段性进展或询问方向，不要继续盲目扩大排查范围。`
   } else {
     text = `⚠️ 循环提醒：检测器「${hit.kind}」连续命中 ${hit.count} 次。请检查当前执行是否陷入重复，尝试不同的方法推进任务。`
   }

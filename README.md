@@ -1,19 +1,34 @@
 # dsh-thinking-breaker
 
-DSH 插件：检测 Agent 陷入循环（重复调用相同工具 / 进度停滞），**先提醒、仍无效再暂停并问人**，由人类从 4 个选项中决定下一步方向，然后无缝恢复执行。
+DSH 插件：检测 Agent 陷入循环（重复调用相同工具 / 进度停滞 / 长时静默勘察），**先提醒、仍无效再暂停并问人**，由人类从 5 个按钮选项（补充信息 / 继续任务 / 终止任务 / 调整方向 / 自定义）中决定下一步方向，然后无缝恢复执行。
 
 - 纯规则检测（参数哈希 + 文本哈希），**不调用任何外部模型**
-- 与内置 `dsh-repeat-tool-reminder` 互补：本插件在其"只提醒"之上增加「暂停 + 4 选项人机协同 + 指令注入恢复」
-- 目标运行时：`@deepseek-ai/dsh ≥ 0.1.2-rc.1`
+- 与内置 `dsh-repeat-tool-reminder` 互补（见下节）：官方只提醒模型自我纠错，本插件增加「暂停 + 5 按钮人机协同 + 指令注入恢复」
+- 目标运行时：`@deepseek-ai/dsh ≥ 0.1.2-rc.1`（v0.1.2-rc.1 实测）
+
+## 与内置 dsh-repeat-tool-reminder 的关系
+
+官方包 `@deepseek-ai/dsh-repeat-tool-reminder` 随 DSH 自带、base bundle 默认启用（无需安装）：检测**相同工具 + 完全相同参数**的连续调用，按阈值 3 / 5 / 8 向模型上下文注入提醒。它是"给模型的建议"——从不拦截、不问人、不执行动作，且只匹配 exact-match（参数略变即漏）。
+
+| 能力 | 官方 reminder | 本插件 |
+| :--- | :---: | :---: |
+| 相同工具+同参数连续重复 | ✅ 3/5/8 提醒 | ✅ 可配 remind/ask |
+| 参数略变的勘察长跑 / 文本停滞 | ❌ | ✅（勘察为实验特性默认关；停滞 ✅） |
+| 提醒模型自我纠错 | ✅ | ✅ |
+| 暂停并问人（5 按钮） | ❌ | ✅ |
+| 按答复 steer / cancel + 宽限恢复 | ❌ | ✅ |
+| 状态持久化 | ❌ | ✅（`jsonl`） |
+
+分工建议：exact-match 重复交给官方提醒层即可；本插件的价值在官方**覆盖不到**的形态（变参勘察长跑、文本停滞）与官方**提醒无效后**的人工接管层。
 
 ## 检测范围边界（重要）
 
-- ✅ 可检测：跨步骤的可观测循环 —— 相同工具 + 相同参数（与属性顺序无关）的连续调用；连续无新工具调用且 assistant 可见文本不变的停滞步骤。
+- ✅ 可检测：跨步骤的可观测循环 —— ① 相同工具 + 相同参数（与属性顺序无关）的连续调用；② 连续无新工具调用且 assistant 可见文本不变的停滞步骤；③（实验特性，默认关）连续"静默勘察步"（有工具调用但单步文本 < 500 字），对应逐文件/逐日志排查的牛角尖形态。
 - ❌ 不可检测：单次 LLM 调用**内部**的"纯思考内耗"（推理是流式输出，无步骤级事件边界，插件无法观测或打断）。
 
 ## 安装与配置
 
-本插件是**标准 DSH 第三方插件形态**：零依赖自包含单文件入口（`index.js`，仅 import node 内置模块）+ `cordis.patch.yml` bundle patch + `dsh.bundle` 声明。安装后 `dsh plugin` 自动把它追加到 profile 的 `dsh.profile.bundles`。
+本插件是**标准 DSH 第三方插件形态**：零依赖自包含单文件入口（`index.mjs`，仅 import node 内置模块）+ `cordis.patch.yml` bundle patch + `dsh.bundle` 声明。安装后 `dsh plugin` 自动把它追加到 profile 的 `dsh.profile.bundles`。
 
 ### 从 GitHub 安装（推荐）
 
@@ -33,7 +48,7 @@ dsh plugin --profile web add link:.
 
 ### 配置
 
-默认配置即可用（结构重复 3 提醒/6 问人，停滞 5 提醒/8 问人，超时 300s）。调整配置：在 profile 目录的 `cordis.patch.yml` 顶层数组加一行（部分键即可，schema 自动补默认；该文件 live 热重载）：
+默认配置即可用（结构重复 3 提醒/6 问人，停滞 5 提醒/8 问人，勘察里程**默认关闭**，超时 300s）。调整配置：在 profile 目录的 `cordis.patch.yml` 顶层数组加一行（部分键即可，schema 自动补默认；该文件 live 热重载）：
 
 ```yaml
 - id: thinking-breaker
@@ -46,12 +61,13 @@ dsh plugin --profile web add link:.
 | `loopDetect.structRepeat` | `remindAt` / `askAt` / `remindInterval` | 3 / 6 / 3 | 相同工具+相同参数连续调用的提醒/问人阈值与提醒间隔 |
 | `loopDetect.structRepeat` | `include` / `exclude` | `[]` / `[]` | 工具名 `*` 通配过滤；`exclude` 中的工具透明（不计数不重置） |
 | `loopDetect.stagnant` | `remindAt` / `askAt` | 5 / 8 | 停滞步数的提醒/问人阈值 |
+| `loopDetect.exploration`（实验，默认 `enabled: false`） | `enabled` / `remindAt` / `askAt` / `resetAfterChars` | false / 20 / 30 / 500 | 连续"静默勘察步"里程（有工具调用且单步文本 < `resetAfterChars`）；出现 ≥ 该长度的长文本即清零；`include`/`exclude` 过滤工具 |
 | `recover` | `graceSteps` | 2 | 恢复后免检测步数 |
 | `interaction` | `timeout` / `noAnswerer` | 300 / `continue` | 问人超时秒数；无 UI/子代理场景降级 `continue`\|`cancel` |
 | `storage` | `type` / `file` | `memory` / … | `memory` 或 `jsonl`（问人前/回合结束保存检测状态，重启恢复可用） |
 | `log` | `level` | `info` | 结构化日志级别 |
 
-环境变量覆盖（优先级最高）：`DSH_TB_STRUCT_REPEAT_REMIND_AT` / `DSH_TB_STRUCT_REPEAT_ASK_AT` / `DSH_TB_STAGNANT_REMIND_AT` / `DSH_TB_STAGNANT_ASK_AT` / `DSH_TB_TIMEOUT` / `DSH_TB_NO_ANSWERER` / `DSH_TB_STORAGE_TYPE` / `DSH_TB_LOG_LEVEL` 等。
+环境变量覆盖（优先级最高）：`DSH_TB_STRUCT_REPEAT_REMIND_AT` / `DSH_TB_STRUCT_REPEAT_ASK_AT` / `DSH_TB_STAGNANT_REMIND_AT` / `DSH_TB_STAGNANT_ASK_AT` / `DSH_TB_EXPLORATION_ENABLED` / `DSH_TB_EXPLORATION_REMIND_AT` / `DSH_TB_EXPLORATION_ASK_AT` / `DSH_TB_EXPLORATION_RESET_AFTER_CHARS` / `DSH_TB_TIMEOUT` / `DSH_TB_NO_ANSWERER` / `DSH_TB_STORAGE_TYPE` / `DSH_TB_LOG_LEVEL` 等。
 
 非法阈值（`askAt <= remindAt`、非整数）在插件加载时直接抛错（fail-loud）。
 
@@ -59,10 +75,10 @@ dsh plugin --profile web add link:.
 
 ```
 tools/post-execute ──结构重复计数──▶ 提醒阈值: additionalContexts 注入提醒（不打断）
-agent/pre-step     ──停滞结算──────▶ 提醒阈值: 提醒消息并入本步 messages
+agent/pre-step     ──停滞/勘察里程结算▶ 提醒阈值: 提醒消息并入本步 messages
         │
         ▼ 达到问人阈值
-保存检测状态 → ctx.userQuestions.ask() 暂停 + 4 选项
+保存检测状态 → ctx.userQuestions.ask() 暂停 + 5 按钮选项
         │
         ▼ 用户选择（或超时/降级）
  补充信息/调整方向/自定义 → agent.steer(指令) 注入并恢复
@@ -76,7 +92,7 @@ agent/pre-step     ──停滞结算──────▶ 提醒阈值: 提醒�
 | 事件 | 用途 |
 | :--- | :--- |
 | `tools/post-execute` | 结构重复计数（键 = 工具名 + 规范化参数），提醒走 `additionalContexts` |
-| `agent/pre-step` | 停滞结算、宽限步数、恢复指令并入本步消息 |
+| `agent/pre-step` | 停滞结算、勘察里程（实验）、宽限步数、恢复指令并入本步消息 |
 | `session/event`（`assistant/message`、`turn/end`） | 观察可见文本哈希；回合结束保存状态 |
 
 ## 恢复选项
@@ -93,6 +109,7 @@ agent/pre-step     ──停滞结算──────▶ 提醒阈值: 提醒�
 
 - 问人仅对**存活运行时根 Agent** 有效；子代理（`DELEGATED_CALLER`）与无 UI 环境（headless/SDK）按 `interaction.noAnswerer` 降级。
 - 停滞检测从"连续两步相同文本"开始计数，单步无工具调用不会立即告警。
+- 「探索里程」是实验特性，默认关闭（`loopDetect.exploration.enabled: true` 开启）；它是无语义启发式，正常长任务也可能触发——提醒仅建议模型汇报进展，问人时点「继续任务」即可放行。
 - 检测状态默认仅进程内存；跨进程恢复需 `storage.type: jsonl`。
 
 ## 开发
@@ -100,7 +117,7 @@ agent/pre-step     ──停滞结算──────▶ 提醒阈值: 提醒�
 ```bash
 pnpm install        # 装 devDeps；随后手动运行一次探测
 pnpm setup:deps     # 探测本机 DSH 位置，生成类型映射（scripts/setup-deps.mjs；仅开发期需要）
-pnpm test           # vitest（当前 68 用例，行覆盖 97.7%）
+pnpm test           # vitest（当前 82 用例，行覆盖 96.6%）
 pnpm typecheck      # tsc --noEmit
 pnpm build          # tsup → 根目录 index.mjs（自包含 ESM）+ index.d.mts
 ```
@@ -132,4 +149,4 @@ const custom: Detector = {
 ctx.on('thinking-breaker/detector', (detector) => { /* 自动送达，无需手动调用 */ })
 ```
 
-内置检测器（`struct-repeat`、`stagnation`）与自定义检测器在同一事件流上依次观察，第一个命中生效。
+内置检测器（`struct-repeat`、`stagnant`、`exploration`）与自定义检测器在同一事件流上依次观察，第一个命中生效。

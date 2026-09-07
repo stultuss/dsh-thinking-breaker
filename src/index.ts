@@ -2,6 +2,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { PostToolDecision } from '@deepseek-ai/dsh-tools'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
+import { ExplorationDetector } from './detectors/exploration'
 import { StagnationDetector } from './detectors/stagnation'
 import { StructRepeatDetector } from './detectors/struct-repeat'
 import { Breaker } from './breaker'
@@ -45,6 +46,9 @@ export function apply(ctx: Context, rawConfig?: unknown): void {
   // fail-loud：阈值不合法在插件加载时直接抛错，绝不静默降级
   assertConfigPair(name, 'loopDetect.structRepeat', config.loopDetect.structRepeat.remindAt, config.loopDetect.structRepeat.askAt)
   assertConfigPair(name, 'loopDetect.stagnant', config.loopDetect.stagnant.remindAt, config.loopDetect.stagnant.askAt)
+  if (config.loopDetect.exploration.enabled) {
+    assertConfigPair(name, 'loopDetect.exploration', config.loopDetect.exploration.remindAt, config.loopDetect.exploration.askAt)
+  }
 
   const logger = ctx.logger('thinking-breaker')
   const log = (message: string, fields?: Record<string, unknown>, type: keyof typeof LEVEL_RANK = 'info'): void => {
@@ -65,6 +69,15 @@ export function apply(ctx: Context, rawConfig?: unknown): void {
       remindAt: config.loopDetect.stagnant.remindAt,
       askAt: config.loopDetect.stagnant.askAt,
     }),
+    ...(config.loopDetect.exploration.enabled
+      ? [new ExplorationDetector({
+          remindAt: config.loopDetect.exploration.remindAt,
+          askAt: config.loopDetect.exploration.askAt,
+          resetAfterChars: config.loopDetect.exploration.resetAfterChars,
+          include: config.loopDetect.exploration.include,
+          exclude: config.loopDetect.exploration.exclude,
+        })]
+      : []),
   ]
   const persister = config.storage.type === 'jsonl'
     ? new JsonlPersister(config.storage.file)

@@ -45,8 +45,79 @@ function assertConfigPair(plugin, label, remindAt, askAt) {
   }
 }
 
+// src/detectors/exploration.ts
+var fresh = () => ({
+  run: 0,
+  toolSinceLastStep: false,
+  textSinceLastStep: false,
+  lastTextLen: 0
+});
+var ExplorationDetector = class {
+  constructor(options) {
+    this.options = options;
+    this.includePatterns = options.include.map(wildcardToRegExp);
+    this.excludePatterns = options.exclude.map(wildcardToRegExp);
+  }
+  options;
+  kind = "exploration";
+  states = /* @__PURE__ */ new WeakMap();
+  includePatterns;
+  excludePatterns;
+  /** 工具是否计入“工具步”（默认全部计入） */
+  tracked(name2) {
+    if (this.includePatterns.length > 0 && !this.includePatterns.some((pattern) => pattern.test(name2))) return false;
+    return !this.excludePatterns.some((pattern) => pattern.test(name2));
+  }
+  observe(event) {
+    if (this.options.enabled === false) return void 0;
+    const { agent } = event;
+    const state = this.states.get(agent) ?? fresh();
+    if (event.toolCall) {
+      if (this.tracked(event.toolCall.name)) state.toolSinceLastStep = true;
+      this.states.set(agent, state);
+      return void 0;
+    }
+    if (event.assistantText !== void 0) {
+      state.textSinceLastStep = true;
+      state.lastTextLen = event.assistantText.length;
+      this.states.set(agent, state);
+      return void 0;
+    }
+    if (!event.step) return void 0;
+    if (event.step.hasUserMessage) {
+      this.states.delete(agent);
+      return void 0;
+    }
+    const hadTool = state.toolSinceLastStep;
+    const textLen = state.textSinceLastStep ? state.lastTextLen : 0;
+    state.toolSinceLastStep = false;
+    state.textSinceLastStep = false;
+    state.lastTextLen = 0;
+    if (!hadTool || textLen >= this.options.resetAfterChars) {
+      state.run = 0;
+    } else {
+      state.run += 1;
+    }
+    this.states.set(agent, state);
+    if (state.run >= this.options.askAt) return { kind: this.kind, count: state.run, ask: true };
+    if (state.run === this.options.remindAt) return { kind: this.kind, count: state.run, ask: false };
+    return void 0;
+  }
+  reset(agent) {
+    this.states.delete(agent);
+  }
+  snapshot(agent) {
+    const state = this.states.get(agent);
+    return state === void 0 ? {} : { run: state.run };
+  }
+  restore(agent, data) {
+    const run = typeof data.run === "number" && data.run >= 0 ? data.run : 0;
+    this.states.set(agent, { run, toolSinceLastStep: false, textSinceLastStep: false, lastTextLen: 0 });
+  }
+};
+
 // src/detectors/stagnation.ts
-var fresh = () => ({ count: 0, lastHash: null, prevHash: null, toolSinceLastStep: false });
+var fresh2 = () => ({ count: 0, lastHash: null, prevHash: null, toolSinceLastStep: false });
 var StagnationDetector = class {
   constructor(options) {
     this.options = options;
@@ -56,7 +127,7 @@ var StagnationDetector = class {
   states = /* @__PURE__ */ new WeakMap();
   observe(event) {
     const { agent } = event;
-    const state = this.states.get(agent) ?? fresh();
+    const state = this.states.get(agent) ?? fresh2();
     if (event.toolCall) {
       state.toolSinceLastStep = true;
       this.states.set(agent, state);
@@ -391,6 +462,8 @@ function buildReminder(hit) {
     text = `\u26A0\uFE0F \u5FAA\u73AF\u63D0\u9192\uFF1A\u5DF2\u8FDE\u7EED ${hit.count} \u6B21\u8C03\u7528\u5DE5\u5177\u300C${hit.toolName}\u300D\u4E14\u53C2\u6570\u5B8C\u5168\u4E00\u81F4\u3002\u8BF7\u5148\u5206\u6790\u5DF2\u6709\u7ED3\u679C\uFF1B\u82E5\u4EFB\u52A1\u5C1A\u672A\u5B8C\u6210\uFF0C\u5C1D\u8BD5\u4E0D\u540C\u7684\u53C2\u6570\u6216\u4E0D\u540C\u7684\u65B9\u6848\uFF0C\u800C\u4E0D\u662F\u539F\u6837\u91CD\u590D\u8C03\u7528\u3002${preview}`;
   } else if (hit.kind === "stagnant") {
     text = `\u26A0\uFE0F \u505C\u6EDE\u63D0\u9192\uFF1A\u5DF2\u8FDE\u7EED ${hit.count} \u6B65\u6CA1\u6709\u65B0\u7684\u5DE5\u5177\u8C03\u7528\u4E14\u8F93\u51FA\u6CA1\u6709\u53D8\u5316\u3002\u8BF7\u7ACB\u5373\u91C7\u53D6\u5177\u4F53\u884C\u52A8\u63A8\u8FDB\u4EFB\u52A1\uFF0C\u907F\u514D\u7A7A\u8F6C\u3002`;
+  } else if (hit.kind === "exploration") {
+    text = `\u26A0\uFE0F \u63A2\u7D22\u63D0\u9192\uFF1A\u5DF2\u8FDE\u7EED ${hit.count} \u6B65\u81EA\u4E3B\u52D8\u5BDF\uFF08\u9759\u9ED8\u5DE5\u5177\u8C03\u7528\uFF09\u4E14\u6CA1\u6709\u9636\u6BB5\u6027\u957F\u6587\u6C47\u62A5\u3002\u82E5\u5C1A\u65E0\u660E\u786E\u7ED3\u8BBA\uFF0C\u8003\u8651\u4E3B\u52A8\u5411\u7528\u6237\u6C47\u62A5\u9636\u6BB5\u6027\u8FDB\u5C55\u6216\u8BE2\u95EE\u65B9\u5411\uFF0C\u4E0D\u8981\u7EE7\u7EED\u76F2\u76EE\u6269\u5927\u6392\u67E5\u8303\u56F4\u3002`;
   } else {
     text = `\u26A0\uFE0F \u5FAA\u73AF\u63D0\u9192\uFF1A\u68C0\u6D4B\u5668\u300C${hit.kind}\u300D\u8FDE\u7EED\u547D\u4E2D ${hit.count} \u6B21\u3002\u8BF7\u68C0\u67E5\u5F53\u524D\u6267\u884C\u662F\u5426\u9677\u5165\u91CD\u590D\uFF0C\u5C1D\u8BD5\u4E0D\u540C\u7684\u65B9\u6CD5\u63A8\u8FDB\u4EFB\u52A1\u3002`;
   }
@@ -462,7 +535,15 @@ var DEFAULTS = {
       exclude: [],
       argumentsPreviewChars: 500
     },
-    stagnant: { remindAt: 5, askAt: 8 }
+    stagnant: { remindAt: 5, askAt: 8 },
+    exploration: {
+      enabled: false,
+      remindAt: 20,
+      askAt: 30,
+      resetAfterChars: 500,
+      include: [],
+      exclude: []
+    }
   },
   recover: { graceSteps: 2 },
   interaction: { timeout: 300, noAnswerer: "continue" },
@@ -482,6 +563,13 @@ function int(value, fallback, path, min) {
   const n = typeof value === "number" ? value : Number(value);
   if (!Number.isInteger(n) || n < min) fail(path, `\u5FC5\u987B\u662F \u2265${min} \u7684\u6574\u6570\uFF08\u5F53\u524D ${String(value)}\uFF09`);
   return n;
+}
+function bool(value, fallback, path) {
+  if (value === void 0 || value === null || value === "") return fallback;
+  if (typeof value === "boolean") return value;
+  if (value === "true") return true;
+  if (value === "false") return false;
+  fail(path, `\u5FC5\u987B\u662F\u5E03\u5C14\u503C\uFF08\u5F53\u524D ${String(value)}\uFF09`);
 }
 function oneOf(value, allowed, fallback, path) {
   if (value === void 0 || value === null || value === "") return fallback;
@@ -514,6 +602,13 @@ function applyEnvOverrides(config, env = process.env) {
       stagnant: {
         remindAt: num("DSH_TB_STAGNANT_REMIND_AT", config.loopDetect.stagnant.remindAt, "loopDetect.stagnant.remindAt", 2),
         askAt: num("DSH_TB_STAGNANT_ASK_AT", config.loopDetect.stagnant.askAt, "loopDetect.stagnant.askAt", 3)
+      },
+      exploration: {
+        ...config.loopDetect.exploration,
+        enabled: bool(env.DSH_TB_EXPLORATION_ENABLED, config.loopDetect.exploration.enabled, "loopDetect.exploration.enabled"),
+        remindAt: num("DSH_TB_EXPLORATION_REMIND_AT", config.loopDetect.exploration.remindAt, "loopDetect.exploration.remindAt", 2),
+        askAt: num("DSH_TB_EXPLORATION_ASK_AT", config.loopDetect.exploration.askAt, "loopDetect.exploration.askAt", 3),
+        resetAfterChars: num("DSH_TB_EXPLORATION_RESET_AFTER_CHARS", config.loopDetect.exploration.resetAfterChars, "loopDetect.exploration.resetAfterChars", 1)
       }
     },
     recover: {
@@ -537,6 +632,7 @@ function resolveConfig(input, env = process.env) {
   const loopDetect = section(src.loopDetect, "loopDetect");
   const structRepeat = section(loopDetect.structRepeat, "loopDetect.structRepeat");
   const stagnant = section(loopDetect.stagnant, "loopDetect.stagnant");
+  const exploration = section(loopDetect.exploration, "loopDetect.exploration");
   const recover = section(src.recover, "recover");
   const interaction = section(src.interaction, "interaction");
   const storage = section(src.storage, "storage");
@@ -554,6 +650,14 @@ function resolveConfig(input, env = process.env) {
       stagnant: {
         remindAt: int(stagnant.remindAt, DEFAULTS.loopDetect.stagnant.remindAt, "loopDetect.stagnant.remindAt", 2),
         askAt: int(stagnant.askAt, DEFAULTS.loopDetect.stagnant.askAt, "loopDetect.stagnant.askAt", 3)
+      },
+      exploration: {
+        enabled: bool(exploration.enabled, DEFAULTS.loopDetect.exploration.enabled, "loopDetect.exploration.enabled"),
+        remindAt: int(exploration.remindAt, DEFAULTS.loopDetect.exploration.remindAt, "loopDetect.exploration.remindAt", 2),
+        askAt: int(exploration.askAt, DEFAULTS.loopDetect.exploration.askAt, "loopDetect.exploration.askAt", 3),
+        resetAfterChars: int(exploration.resetAfterChars, DEFAULTS.loopDetect.exploration.resetAfterChars, "loopDetect.exploration.resetAfterChars", 1),
+        include: stringList(exploration.include, DEFAULTS.loopDetect.exploration.include, "loopDetect.exploration.include"),
+        exclude: stringList(exploration.exclude, DEFAULTS.loopDetect.exploration.exclude, "loopDetect.exploration.exclude")
       }
     },
     recover: {
@@ -582,6 +686,9 @@ function apply(ctx, rawConfig) {
   const config = resolveConfig(rawConfig);
   assertConfigPair(name, "loopDetect.structRepeat", config.loopDetect.structRepeat.remindAt, config.loopDetect.structRepeat.askAt);
   assertConfigPair(name, "loopDetect.stagnant", config.loopDetect.stagnant.remindAt, config.loopDetect.stagnant.askAt);
+  if (config.loopDetect.exploration.enabled) {
+    assertConfigPair(name, "loopDetect.exploration", config.loopDetect.exploration.remindAt, config.loopDetect.exploration.askAt);
+  }
   const logger = ctx.logger("thinking-breaker");
   const log = (message, fields, type = "info") => {
     if (LEVEL_RANK[type] <= LEVEL_RANK[config.log.level]) {
@@ -599,7 +706,14 @@ function apply(ctx, rawConfig) {
     new StagnationDetector({
       remindAt: config.loopDetect.stagnant.remindAt,
       askAt: config.loopDetect.stagnant.askAt
-    })
+    }),
+    ...config.loopDetect.exploration.enabled ? [new ExplorationDetector({
+      remindAt: config.loopDetect.exploration.remindAt,
+      askAt: config.loopDetect.exploration.askAt,
+      resetAfterChars: config.loopDetect.exploration.resetAfterChars,
+      include: config.loopDetect.exploration.include,
+      exclude: config.loopDetect.exploration.exclude
+    })] : []
   ];
   const persister = config.storage.type === "jsonl" ? new JsonlPersister(config.storage.file) : new MemoryPersister();
   const breaker = new Breaker(detectors, {

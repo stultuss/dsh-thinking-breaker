@@ -1,7 +1,7 @@
 import { Context } from '@deepseek-ai/cordis';
 import { Agent } from '@deepseek-ai/dsh-agent';
 
-/** 检测器类型标识（内置：structRepeat / stagnant；自定义可扩展） */
+/** 检测器类型标识（内置：structRepeat / stagnant / exploration；自定义可扩展） */
 type DetectorKind = string;
 /** 一次规范化后的工具调用记录 */
 interface ToolCallRecord {
@@ -17,7 +17,7 @@ interface DetectorHit {
     readonly kind: DetectorKind;
     /** 当前连续计数 */
     readonly count: number;
-    /** true=达到问人阈值（暂停 + 4 选项）；false=仅提醒 */
+    /** true=达到问人阈值（暂停 + 5 按钮选项）；false=仅提醒 */
     readonly ask: boolean;
     /** 触发工具名（仅 structRepeat） */
     readonly toolName?: string;
@@ -74,6 +74,14 @@ interface Config {
         stagnant: {
             remindAt: number;
             askAt: number;
+        };
+        exploration: {
+            enabled: boolean;
+            remindAt: number;
+            askAt: number;
+            resetAfterChars: number;
+            include: string[];
+            exclude: string[];
         };
     };
     recover: {
