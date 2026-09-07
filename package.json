@@ -26,7 +26,6 @@
     }
   },
   "scripts": {
-    "postinstall": "node scripts/setup-deps.mjs",
     "setup:deps": "node scripts/setup-deps.mjs",
     "build": "rm -f index.mjs index.d.mts && tsup && mv -f index.d.ts index.d.mts",
     "typecheck": "tsc --noEmit",

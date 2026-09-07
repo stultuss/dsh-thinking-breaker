@@ -98,13 +98,14 @@ agent/pre-step     ──停滞结算──────▶ 提醒阈值: 提醒�
 ## 开发
 
 ```bash
-pnpm install        # postinstall 自动探测本机 DSH 位置，生成类型映射（scripts/setup-deps.mjs）
+pnpm install        # 装 devDeps；随后手动运行一次探测
+pnpm setup:deps     # 探测本机 DSH 位置，生成类型映射（scripts/setup-deps.mjs；仅开发期需要）
 pnpm test           # vitest（当前 68 用例，行覆盖 97.7%）
 pnpm typecheck      # tsc --noEmit
 pnpm build          # tsup → 根目录 index.mjs（自包含 ESM）+ index.d.mts
 ```
 
-类型解析：源码对 `@deepseek-ai/*` 只有 type-only 导入（构建产物零 @deepseek-ai 运行时依赖，运行时由 DSH 应用提供插件上下文）。开发期由 `postinstall` 探测 DSH 安装位置并生成 gitignored 的 `tsconfig.dsh.json` 路径映射；探测顺序为 **环境变量 `DSH_DEPS_ROOT` → 项目本地安装 → npm/pnpm/yarn 全局根 → PATH 中的 dsh 可执行文件**。CI 等无 DSH 环境可设 `DSH_DEPS_ROOT=skip`（类型检查将不可用）。
+类型解析：源码对 `@deepseek-ai/*` 只有 type-only 导入（构建产物零 @deepseek-ai 运行时依赖，运行时由 DSH 应用提供插件上下文）。开发期由 `pnpm setup:deps` 探测 DSH 安装位置并生成 gitignored 的 `tsconfig.dsh.json` 路径映射；探测顺序为 **环境变量 `DSH_DEPS_ROOT` → 项目本地安装 → npm/pnpm/yarn 全局根 → PATH 中的 dsh 可执行文件**。CI 等无 DSH 环境可设 `DSH_DEPS_ROOT=skip`（类型检查将不可用）。包不设 `postinstall`——作为依赖被 pnpm 安装时不会触发任何构建脚本，因此无需 allowBuilds 审批。
 
 **重要**：`index.mjs` / `index.d.mts` 是构建产物且需要**提交到 git**——GitHub 安装直接使用仓库内的构建产物，无 prepare 构建脚本，因此不需要 allowBuilds 审批。改代码后：`pnpm build` → 提交产物 → push。
 
